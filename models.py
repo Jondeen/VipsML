@@ -1,14 +1,18 @@
-from keras.models import Model
+from keras.models import Model, Sequential
 from keras.layers import Input
 from keras.layers.core import Activation, Reshape
-from keras.layers.convolutional import Convolution2D
+from keras.layers.convolutional import Convolution2D, Conv2D, MaxPooling2D
 from keras.layers.normalization import BatchNormalization
+from keras.layers.core import Activation, Dropout, Flatten, Dense
 
 from layers import MaxPoolingWithArgmax2D, MaxUnpooling2D
 
-# Creds to ykamikawa/tf-keras-SegNet
+from keras import backend as K
 
-def segnet(
+# Creds to ykamikawa/tf-keras-SegNet
+# (With modifications)
+
+def SegNet(
         input_shape,
         n_labels,
         kernel=3,
@@ -70,7 +74,6 @@ def segnet(
     conv_13 = Activation("relu")(conv_13)
 
     pool_5, mask_5 = MaxPoolingWithArgmax2D(pool_size)(conv_13)
-    print("Build encoder done..")
 
     # decoder
 
@@ -127,13 +130,73 @@ def segnet(
 
     conv_26 = Convolution2D(n_labels, (1, 1), padding="valid")(conv_25)
     conv_26 = BatchNormalization()(conv_26)
-    conv_26 = Reshape(
-            (input_shape[0] * input_shape[1], n_labels),
-            input_shape=(input_shape[0], input_shape[1], n_labels))(conv_26)
+    #conv_26 = Reshape(
+    #        (input_shape[0], input_shape[1], n_labels),
+    #        input_shape=(input_shape[0], input_shape[1], n_labels))(conv_26)
 
     outputs = Activation(output_mode,name='out')(conv_26)
-    print("Build decoder done..")
 
     model = Model(inputs=inputs, outputs=outputs, name="SegNet")
 
+    return model
+
+# Creds to Adrian Rosebrock @ https://www.pyimagesearch.com/2018/05/07/multi-label-classification-with-keras/
+# (With modifications) (viability of Dropout is controversial)
+
+def SmallerVGGNet(shape,classes):
+    model = Sequential(name="SmallerVGGNet")
+    w,h,d=shape
+    inputShape=shape
+    chanDim=-1
+    
+    if K.image_data_format() == "channels_first":
+        inputShape=(d,h,w)
+        chanDim=1
+      
+    # CONV => RELU => POOL
+    model.add(
+        Conv2D(64,(3,3), 
+        padding="same",
+        input_shape=inputShape)
+    )
+    model.add(Activation("relu", name="CONV_RELU_POOL_Act_1"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    #model.add(Dropout(0.1))
+    
+    # (CONV => RELU) * 2 => POOL
+    model.add(Conv2D(64,(3,3), padding="same"))
+    model.add(Activation("relu", name="CONV_RELU_2_Act_1"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(Conv2D(64,(3,3), padding="same"))
+    model.add(Activation("relu", name="CONV_RELU_2_Act_2"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    #model.add(Dropout(0.1))
+    
+    # (CONV => RELU) * 3 => POOL
+    model.add(Conv2D(128,(3,3), padding="same"))
+    model.add(Activation("relu", name="CONV_RELU_3_POOL_Act_1"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(Conv2D(128,(3,3), padding="same"))
+    model.add(Activation("relu", name="CONV_RELU_3_POOL_Act_2"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(Conv2D(128,(3,3), padding="same"))
+    model.add(Activation("relu", name="CONV_RELU_3_POOL_Act_3"))
+    model.add(BatchNormalization(axis=chanDim))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    #model.add(Dropout(0.1))
+    
+    # FC => RELU
+    model.add(Flatten())
+    model.add(Dense(512))
+    model.add(Activation("relu",name="FC_RELU_Act"))
+    model.add(BatchNormalization(name="FC_RELU_BatchNorm"))
+    #model.add(Dropout(0.1))
+    
+    # softmax|
+    model.add(Dense(classes))
+    model.add(Activation("softmax",name="OUTPUT"))
+    
+    # return model
     return model
