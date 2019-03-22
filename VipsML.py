@@ -6,22 +6,9 @@ from functools import reduce
 from keras.utils import Sequence
 import threading
 from tqdm import tqdm
+from tools import to_categorical, format_to_dtype, vips_to_np
 
 USE_REGIONS = True
-
-format_to_dtype = {
-    'uchar': np.uint8,
-    'char': np.int8,
-    'ushort': np.uint16,
-    'short': np.int16,
-    'uint': np.uint32,
-    'int': np.int32,
-    'float': np.float32,
-    'double': np.float64,
-    'complex': np.complex64,
-    'dpcomplex': np.complex128,
-}
-
 
 class PreCropModulationGenerator():
     """ Pipeline: Crop -> Rotation -> Flip -> To Memory """
@@ -38,8 +25,8 @@ class PreCropModulationGenerator():
         self.bands=im.bands
         
     def fetch(self,x,y,s,n):
-        fetched = self.rots_and_flips[n](self.im.crop(x,y,s,s)).write_to_memory()
-        return np.frombuffer(fetched, dtype=self.dtype).reshape(s,s,self.bands)
+        fetched = self.rots_and_flips[n](self.im.crop(x,y,s,s))
+        return vips_to_np(fetched)
 
 
 class PostCropModulationGenerator():
@@ -67,8 +54,8 @@ class PostCropModulationGenerator():
                               lambda x,y,s: (h-y-s,w-x-s)]
         
     def fetch(self,x,y,s,n):
-        fetched = self.rots_and_flips[n].crop(*self.position_correction[n](x,y,s),s,s).write_to_memory()
-        return np.frombuffer(fetched, dtype=self.dtype).reshape(s,s,self.bands)
+        fetched = self.rots_and_flips[n].crop(*self.position_correction[n](x,y,s),s,s)
+        return vips_to_np(fetched)
 
 class RegionModulationGenerator():
     """ Rotate -> Flip -> Region() -> Fetch """
@@ -77,9 +64,10 @@ class RegionModulationGenerator():
         
         self.dtype=format_to_dtype[im.format]
         
-        rotations = [im,im.rot90(),im.rot180(),im.rot270()]
-        self.rots_and_flips = [Vips.Region.new(rot) for rot in rotations] + \
-                        [Vips.Region.new(rot.fliphor()) for rot in rotations]
+        self.rotations = [im,im.rot90(),im.rot180(),im.rot270()]
+        self.rots_and_flips = [Vips.Region.new(rot) for rot in self.rotations] + \
+                        [Vips.Region.new(rot.fliphor()) for rot in self.rotations]
+        
         w=im.width
         self.w=w
         h=im.height
@@ -101,7 +89,7 @@ class RegionModulationGenerator():
         Param n: id of flip/rotate combination (0-7)"""
         x_, y_ = self.position_correction[n](int(x),int(y),s)
         fetched = self.rots_and_flips[n].fetch(x_, y_, s, s)
-        return np.frombuffer(fetched, dtype=self.dtype).reshape(s,s,self.bands)
+        return np.frombuffer(fetched, dtype=self.dtype).reshape(s,s,self.bands)    
 
 class VipsScanImage():
     def __init__(self,vips_image,frame_size,overlap=0.0,
@@ -152,7 +140,7 @@ class VipsScanImage():
         s = self.frame_size+(2*self.padding)
         try:
             with self.lock:
-                frame = self.generate_modulation(x_px, y_px, s, mod_id)
+                frame = self.generate_modulation(int(x_px), int(y_px), int(s), mod_id)
         except:
             error_msg = "Requested area out of bounds: {}, {} (+{})"
             raise Exception(error_msg.format(x_px, y_px, s))
@@ -161,7 +149,7 @@ class VipsScanImage():
 
 class VipsML():
     def __init__(self,image,mask=None,frame_size=None,overlap=None,
-                 padding=None,outer_pad=['white','black']): 
+                 padding=None,outer_pad=['white','black'],meta_scale=None): 
         
         if type(image) == str:
             image = Vips.Image.new_from_file(image)
@@ -176,6 +164,7 @@ class VipsML():
         self.overlap = overlap
         self.padding = padding
         self.outer_pad = outer_pad
+        self.meta_scale = meta_scale
         
         self.image = VipsScanImage(image, frame_size, overlap, 
                                            padding, outer_pad[0])
@@ -196,7 +185,7 @@ class VipsML():
             return None
         else:
             if mask.bands == 1:
-                cat_mask, self.classes = VipsML.to_categorical(mask)
+                cat_mask, self.classes = to_categorical(mask)
             else:
                 self.classes = mask.bands
                 cat_mask = mask
@@ -204,27 +193,13 @@ class VipsML():
         
     def get_training_pair(self,index):
         mod_n = random.choice(range(8))
-        return self.image.get(index,mod_n), self.mask.get(index,mod_n)
+        image = self.image.get(index,mod_n)
+        mask = self.mask.get(index,mod_n)
+        return image, mask 
         
     def get_single(self,index):
-        return self.image[index]
-
-    @staticmethod
-    def to_categorical(im, n_features=0):
-        if (n_features == 0):
-            hist = im.hist_find()
-            if hist(0,0)+hist(hist.width-1,0) == im.width*im.height:
-                n_features = 2
-                return im, n_features 
-            else:
-                for n in range(hist.width):
-                    c = hist(n,0)
-                    if c != [0.0]:
-                        n_features = n+1
-        categorical = im == 0
-        for klass in range(1,n_features):
-            categorical = categorical.bandjoin(im == int(klass))
-        return categorical, n_features
+        image = self.image[index]
+        return image
     
     def predict_model(self, model, batch_size=25):
         start = 0
