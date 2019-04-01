@@ -1,3 +1,4 @@
 .ipynb_checkpoints
 weights/*
+figures/*
 __pycache__
