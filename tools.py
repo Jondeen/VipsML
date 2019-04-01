@@ -22,26 +22,32 @@ def vips_to_np(im):
     return np.frombuffer(im.write_to_memory(), dtype=format_to_dtype[im.format]).reshape(im.height,im.width,im.bands)
 
 class Previewer(Callback):
-    def __init__(self, generator, number_of_images=2):
+    def __init__(self, generator, number_of_images=2,save_path=None):
         super()
         self.generator = generator
         self.number_of_images = number_of_images
+        self.save_path = save_path
         
-    def on_epoch_end(self, batch, logs={}):
-        preview_model(self.model, self.generator, self.number_of_images)
+    def on_epoch_end(self, epoch, logs={}):
+        fig = preview_model(self.model, self.generator, self.number_of_images)
+        if self.save_path:
+            fig.savefig(self.save_path.format(epoch))
         
-def preview_model(model, generator, number_of_images, weights_path=None,):    
+        
+def preview_model(model, generator, images, weights_path=None, labels=False):
     if weights_path != None:
         model.load_weights(weights_path)
+    
+    n_images = len(images) if type(images) == list else images
 
     rs=list(range(generator.images[0].total_frames))
-    f, axarr = plt.subplots(number_of_images,3,figsize=(20,6*number_of_images))
+    fig, axarr = plt.subplots(n_images,3,figsize=(20,6*n_images))
     n=0
     
-    test_ids=[]
-    test_images=[]
+    test_ids=images if type(images) == list else []
+    test_images=[generator.images[0].get_single(i) for i in test_ids]
     
-    while n < number_of_images:        
+    while len(test_images) < n_images:        
         i=random.choice(rs)
         
         orig=generator.images[0].get_single(i)
@@ -55,11 +61,16 @@ def preview_model(model, generator, number_of_images, weights_path=None,):
     predictions=model.predict(np.asarray(test_images))
     
     for n,i in enumerate(test_ids):
-        predicted=predictions[n].reshape((generator.shape[0],generator.shape[1],generator.classes))
+        predicted=predictions[n].reshape((generator.output_shape[0],generator.output_shape[1],generator.classes))
         axarr[n][0].imshow(np.argmax(predicted,axis=2),vmax=4,vmin=0,cmap='hot')
         axarr[n][1].imshow(test_images[n])
         axarr[n][2].imshow(np.argmax(generator.images[0].mask.get(i),axis=2),vmax=4,vmin=0,cmap='hot')
+        if labels:
+            axarr[n][0].set_title(str(i))
+            axarr[n][1].set_title(str(i))
+            axarr[n][2].set_title(str(i))
     plt.show()
+    return fig
     
 def to_categorical(im, n_features=0):
     if (n_features == 0):
@@ -81,12 +92,13 @@ def flatten(image,n):
     return ((image/255.0)*n).cast('uchar')
 
 def from_categorical(im):
-    template = im.bandsplit()
-    for band in range(im.bands):
-        template[band] = reduce(lambda a,b: a&~b,[template[i] for i in range(im.bands) if i!=band],template[band])
+    template = im.bandsplit()[1:im.bands]
+    bands = im.bands-1
+    for band in range(bands):
+        template[band] = reduce(lambda a,b: a&~b,[template[i] for i in range(bands) if i!=band],template[band])
     result = Vips.Image.black(im.width,im.height)
-    for band in range(1, im.bands):
-        result |= flatten(template[band],band)
+    for band in range(0, bands):
+        result |= flatten(template[band],band+1)
     return result
 
 def resize_indexed(im,width,height):
@@ -95,7 +107,7 @@ def resize_indexed(im,width,height):
     return from_categorical(cat_image_resized)
 
 def resize_categorical(cat_image,width,height):
-    reducer = lambda a,b: a.bandjoin(b.resize(width/cat_image.width,vscale=height/cat_image.height)>127)
+    reducer = lambda a,b: a.bandjoin(b.resize(width/cat_image.width,vscale=height/cat_image.height)>=63)
     return reduce(reducer,cat_image.bandsplit())
 
 def show_vips_im(im):
