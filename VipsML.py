@@ -6,7 +6,7 @@ from functools import reduce
 from keras.utils import Sequence
 import threading
 from tqdm import tqdm
-from tools import to_categorical, format_to_dtype, vips_to_np
+from .tools import to_categorical, format_to_dtype, vips_to_np
 
 USE_REGIONS = True
 
