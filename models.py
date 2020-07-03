@@ -5,7 +5,7 @@ from keras.layers.convolutional import Convolution2D, Conv2D, MaxPooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.layers.core import Activation, Dropout, Flatten, Dense
 
-from layers import MaxPoolingWithArgmax2D, MaxUnpooling2D
+from .layers import MaxPoolingWithArgmax2D, MaxUnpooling2D
 
 from keras import backend as K
 
