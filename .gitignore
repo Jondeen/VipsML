@@ -2,3 +2,6 @@
 weights/*
 figures/*
 __pycache__
+dist
+build
+src/VipsML.egg-info
