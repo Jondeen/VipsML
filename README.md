@@ -2,4 +2,4 @@ Framework for test-driving libvips optimisations done by John Cupitt (https://gi
 
 See the examples-folder for how to use the library, or the source for how to use Vips to enable deep learning for image segmentation and classification with a low memory footprint, on terra-pixel sized images.
 
-**Disclaimer:** The segmentation class is currently stale due to changes in the tf api (v1-v2), and will be updated shortly. The classification class works as before. Hardware accelleration recommended.
+Hardware accelleration recommended.
